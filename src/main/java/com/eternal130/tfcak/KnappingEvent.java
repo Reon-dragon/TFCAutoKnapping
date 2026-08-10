@@ -359,26 +359,33 @@ public class KnappingEvent
             return;
         }
 
-        if (!RecipeSelector.selectionMode)
+        try
         {
-            return;
-        }
-
-        if (cachedRecipes == null || cachedRecipes.isEmpty())
-        {
-            return;
-        }
-
-        // 左键点击
-        if (event.getButton() == 0)
-        {
-            boolean handled = RecipeSelector.handleClick(
-                event.getMouseX(), event.getMouseY(), screen, cachedRecipes
-            );
-            if (handled)
+            if (!RecipeSelector.selectionMode)
             {
-                event.setCanceled(true);
+                return;
             }
+
+            if (cachedRecipes == null || cachedRecipes.isEmpty())
+            {
+                return;
+            }
+
+            // 左键点击
+            if (event.getButton() == 0)
+            {
+                boolean handled = RecipeSelector.handleClick(
+                    event.getMouseX(), event.getMouseY(), screen, cachedRecipes
+                );
+                if (handled)
+                {
+                    event.setCanceled(true);
+                }
+            }
+        }
+        catch (Throwable e)
+        {
+            TFCAutoKnapping.LOGGER.error("Error in mouse click handler", e);
         }
     }
 
@@ -392,18 +399,25 @@ public class KnappingEvent
             return;
         }
 
-        if (!RecipeSelector.selectionMode || cachedRecipes == null)
+        try
         {
-            return;
-        }
+            if (!RecipeSelector.selectionMode || cachedRecipes == null)
+            {
+                return;
+            }
 
-        boolean handled = RecipeSelector.handleScroll(
-            event.getMouseX(), event.getMouseY(), screen,
-            event.getScrollDelta(), cachedRecipes
-        );
-        if (handled)
+            boolean handled = RecipeSelector.handleScroll(
+                event.getMouseX(), event.getMouseY(), screen,
+                event.getScrollDelta(), cachedRecipes
+            );
+            if (handled)
+            {
+                event.setCanceled(true);
+            }
+        }
+        catch (Throwable e)
         {
-            event.setCanceled(true);
+            TFCAutoKnapping.LOGGER.error("Error in scroll handler", e);
         }
     }
 
