@@ -74,9 +74,9 @@ MIT License
 
 # TFCAutoKnapping
 
-## TerraFirmaCraft 自动打制模组
+![TFCAutoKnapping](https://github.com/Reon-dragon/TFCAutoKnapping/releases/download/v1.2.0/tfcak_logo.jpg)
 
-一键自动完成 5x5 网格打制，无需手动点击。
+TerraFirmaCraft 自动打制模组 — 一键自动完成 5x5 网格打制，无需手动点击。
 
 ## 功能特性
 
