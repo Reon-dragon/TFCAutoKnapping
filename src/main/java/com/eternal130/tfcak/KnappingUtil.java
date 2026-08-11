@@ -9,6 +9,7 @@ import net.dries007.tfc.util.KnappingType;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.world.level.Level;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,6 +36,13 @@ public class KnappingUtil
     private static Field leftPosField;
     /** 反射缓存：AbstractContainerScreen.topPos */
     private static Field topPosField;
+    /** 反射缓存：AbstractContainerScreen.imageWidth */
+    private static Field imageWidthField;
+    /** 反射缓存：AbstractContainerScreen.imageHeight */
+    private static Field imageHeightField;
+    /** 反射状态：0=未尝试, 1=成功, -1=彻底失败 */
+    private static int leftPosState = 0;
+    private static int topPosState = 0;
     /** 反射缓存：KnappingRecipe.pattern */
     private static Field recipePatternField;
     /** 反射缓存：KnappingRecipe.knappingType */
@@ -45,48 +53,247 @@ public class KnappingUtil
     // ==================== 反射工具方法 ====================
 
     /**
-     * 获取 KnappingScreen 的 GUI 左上角 X 坐标
-     * 通过反射访问 AbstractContainerScreen.leftPos（protected 字段）
+     * 在类层次结构中查找字段（从 startClass 向上遍历到 Object）
+     * 支持多个候选名称（Mojmap / SRG / MCP）
      */
-    public static int getGuiLeft(AbstractContainerScreen<?> screen)
+    private static Field findFieldInHierarchy(Class<?> startClass, String... names)
+    {
+        Class<?> clazz = startClass;
+        while (clazz != null && clazz != Object.class)
+        {
+            for (String name : names)
+            {
+                try
+                {
+                    Field f = clazz.getDeclaredField(name);
+                    f.setAccessible(true);
+                    return f;
+                }
+                catch (NoSuchFieldException ignored) { }
+            }
+            clazz = clazz.getSuperclass();
+        }
+        return null;
+    }
+
+    /**
+     * 尝试调用无参 getter 方法获取 int 值
+     */
+    private static Integer tryInvokeGetter(Object obj, String... methodNames)
+    {
+        for (String name : methodNames)
+        {
+            try
+            {
+                Method m = obj.getClass().getMethod(name);
+                Object result = m.invoke(obj);
+                if (result instanceof Integer) return (Integer) result;
+            }
+            catch (Exception ignored) { }
+        }
+        return null;
+    }
+
+    /**
+     * 扫描类中的 int 字段，返回值与 expectedValue 匹配的字段
+     * 用于在字段名未知时通过值反查
+     */
+    private static Field findIntFieldByValue(Object obj, Class<?> searchClass, int expectedValue)
     {
         try
         {
-            if (leftPosField == null)
+            for (Field f : searchClass.getDeclaredFields())
             {
-                leftPosField = AbstractContainerScreen.class.getDeclaredField("leftPos");
-                leftPosField.setAccessible(true);
+                if (f.getType() == int.class)
+                {
+                    try
+                    {
+                        f.setAccessible(true);
+                        if (f.getInt(obj) == expectedValue)
+                        {
+                            return f;
+                        }
+                    }
+                    catch (Exception ignored) { }
+                }
             }
-            return leftPosField.getInt(screen);
         }
-        catch (Exception e)
+        catch (Exception ignored) { }
+        return null;
+    }
+
+    /**
+     * 获取 AbstractContainerScreen 的 imageWidth（GUI 宽度）
+     * TFC KnappingScreen 的 imageWidth = 176
+     */
+    private static int getImageWidth(AbstractContainerScreen<?> screen)
+    {
+        // 方式1：反射缓存
+        if (imageWidthField != null)
         {
-            // 备用方案：根据屏幕宽度和默认 GUI 宽度计算
-            TFCAutoKnapping.LOGGER.warn("Failed to get leftPos, using fallback: {}", e.getMessage());
-            return (screen.width - 176) / 2;
+            try { return imageWidthField.getInt(screen); } catch (Exception ignored) { }
         }
+        // 方式2：查找字段
+        Field f = findFieldInHierarchy(screen.getClass(), "imageWidth", "f_97718_", "xSize", "field_214136_g");
+        if (f != null)
+        {
+            imageWidthField = f;
+            try { return f.getInt(screen); } catch (Exception ignored) { }
+        }
+        // 方式3：TFC KnappingScreen 固定值
+        return 176;
+    }
+
+    /**
+     * 获取 AbstractContainerScreen 的 imageHeight（GUI 高度）
+     * TFC KnappingScreen 的 imageHeight = 166
+     */
+    private static int getImageHeight(AbstractContainerScreen<?> screen)
+    {
+        if (imageHeightField != null)
+        {
+            try { return imageHeightField.getInt(screen); } catch (Exception ignored) { }
+        }
+        Field f = findFieldInHierarchy(screen.getClass(), "imageHeight", "f_97719_", "ySize", "field_214137_h");
+        if (f != null)
+        {
+            imageHeightField = f;
+            try { return f.getInt(screen); } catch (Exception ignored) { }
+        }
+        return 166;
+    }
+
+    /**
+     * 获取 KnappingScreen 的 GUI 左上角 X 坐标
+     *
+     * 反射策略（按优先级）：
+     * 1. 缓存字段直接读取
+     * 2. 在类层次中按名称查找（Mojmap: leftPos, SRG: f_97716_）
+     * 3. 调用 getter 方法（getLeftPos / getGuiLeft）
+     * 4. 通过值反查：leftPos = (width - imageWidth) / 2
+     * 5. Fallback：使用默认 imageWidth=176 计算
+     *
+     * 所有策略只尝试一次，成功后缓存，失败后不再重试（避免每帧刷屏）
+     */
+    public static int getGuiLeft(AbstractContainerScreen<?> screen)
+    {
+        // 快速路径：已成功，直接读
+        if (leftPosState == 1 && leftPosField != null)
+        {
+            try { return leftPosField.getInt(screen); } catch (Exception ignored) { }
+        }
+        // 快速路径：已彻底失败，用 fallback
+        if (leftPosState == -1)
+        {
+            return (screen.width - getImageWidth(screen)) / 2;
+        }
+
+        // 策略1：按名称在类层次中查找（Mojmap + SRG + MCP 名）
+        if (leftPosField == null)
+        {
+            leftPosField = findFieldInHierarchy(screen.getClass(),
+                "leftPos", "f_97716_", "field_214138_i", "guiLeft");
+        }
+
+        // 策略2：尝试读取字段值
+        if (leftPosField != null)
+        {
+            try
+            {
+                int val = leftPosField.getInt(screen);
+                leftPosState = 1;
+                TFCAutoKnapping.LOGGER.debug("leftPos resolved via field: {} = {}", leftPosField.getName(), val);
+                return val;
+            }
+            catch (Exception ignored) { }
+        }
+
+        // 策略3：尝试 getter 方法
+        Integer getterVal = tryInvokeGetter(screen, "getLeftPos", "getGuiLeft");
+        if (getterVal != null)
+        {
+            leftPosState = 1;
+            TFCAutoKnapping.LOGGER.debug("leftPos resolved via getter: {}", getterVal);
+            return getterVal;
+        }
+
+        // 策略4：通过值反查 — leftPos 应该等于 (width - imageWidth) / 2
+        int expected = (screen.width - getImageWidth(screen)) / 2;
+        Field byVal = findIntFieldByValue(screen, AbstractContainerScreen.class, expected);
+        if (byVal != null)
+        {
+            leftPosField = byVal;
+            leftPosState = 1;
+            TFCAutoKnapping.LOGGER.info("leftPos resolved via value scan: field={} expected={}", byVal.getName(), expected);
+            return expected;
+        }
+
+        // 策略5：Fallback
+        leftPosState = -1;
+        TFCAutoKnapping.LOGGER.warn("Failed to get leftPos via all strategies, using fallback: {}", expected);
+        return expected;
     }
 
     /**
      * 获取 KnappingScreen 的 GUI 左上角 Y 坐标
-     * 通过反射访问 AbstractContainerScreen.topPos（protected 字段）
+     * 反射策略与 getGuiLeft 相同
      */
     public static int getGuiTop(AbstractContainerScreen<?> screen)
     {
-        try
+        if (topPosState == 1 && topPosField != null)
         {
-            if (topPosField == null)
+            try { return topPosField.getInt(screen); } catch (Exception ignored) { }
+        }
+        if (topPosState == -1)
+        {
+            return (screen.height - getImageHeight(screen)) / 2;
+        }
+
+        // 策略1：按名称查找
+        if (topPosField == null)
+        {
+            topPosField = findFieldInHierarchy(screen.getClass(),
+                "topPos", "f_97717_", "field_214139_j", "guiTop");
+        }
+
+        // 策略2：读取字段
+        if (topPosField != null)
+        {
+            try
             {
-                topPosField = AbstractContainerScreen.class.getDeclaredField("topPos");
-                topPosField.setAccessible(true);
+                int val = topPosField.getInt(screen);
+                topPosState = 1;
+                TFCAutoKnapping.LOGGER.debug("topPos resolved via field: {} = {}", topPosField.getName(), val);
+                return val;
             }
-            return topPosField.getInt(screen);
+            catch (Exception ignored) { }
         }
-        catch (Exception e)
+
+        // 策略3：getter 方法
+        Integer getterVal = tryInvokeGetter(screen, "getTopPos", "getGuiTop");
+        if (getterVal != null)
         {
-            TFCAutoKnapping.LOGGER.warn("Failed to get topPos, using fallback: {}", e.getMessage());
-            return (screen.height - 166) / 2;
+            topPosState = 1;
+            TFCAutoKnapping.LOGGER.debug("topPos resolved via getter: {}", getterVal);
+            return getterVal;
         }
+
+        // 策略4：值反查
+        int expected = (screen.height - getImageHeight(screen)) / 2;
+        // 排除已识别为 leftPos 的字段
+        Field byVal = findIntFieldByValue(screen, AbstractContainerScreen.class, expected);
+        if (byVal != null && byVal != leftPosField)
+        {
+            topPosField = byVal;
+            topPosState = 1;
+            TFCAutoKnapping.LOGGER.info("topPos resolved via value scan: field={} expected={}", byVal.getName(), expected);
+            return expected;
+        }
+
+        // 策略5：Fallback
+        topPosState = -1;
+        TFCAutoKnapping.LOGGER.warn("Failed to get topPos via all strategies, using fallback: {}", expected);
+        return expected;
     }
 
     /**
