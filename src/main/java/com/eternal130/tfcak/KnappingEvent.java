@@ -52,10 +52,10 @@ public class KnappingEvent
     private static String lastClickTime = null;
     private static RecipeHolder<KnappingRecipe> targetRecipeForDebug = null;
 
-    // 产物槽验证状态
+    // 产物槽验证状态（基于实际时间，非帧计数）
     private static boolean verifyingOutput = false;
-    private static int verifyTicks = 0;
-    private static final int VERIFY_TIMEOUT = 10; // 10 ticks = 500ms 等待服务器同步
+    private static long verifyStartTime = 0;
+    private static final long VERIFY_TIMEOUT_MS = 1000; // 1000ms 等待服务器同步
 
     // ==================== 渲染事件 ====================
 
@@ -237,7 +237,7 @@ public class KnappingEvent
                 RecipeSelector.selectionMode = true;
                 lastCellsToClickCount = 0;
                 verifyingOutput = false;
-                verifyTicks = 0;
+                verifyStartTime = 0;
                 totalClicksThisSession = 0;
                 failureCountThisSession = 0;
                 targetRecipeForDebug = null;
@@ -249,30 +249,30 @@ public class KnappingEvent
                 return;
             }
 
-            // 产物槽验证阶段：等待服务器同步后检查产物槽
+            // 产物槽验证阶段：基于实际时间等待服务器同步
             if (verifyingOutput)
             {
-                verifyTicks++;
+                long elapsedMs = System.currentTimeMillis() - verifyStartTime;
                 ItemStack outputSlotItem = container.getSlot(0).getItem();
 
                 if (!outputSlotItem.isEmpty())
                 {
                     // 产物槽有物品 → 打制成功
-                    TFCAutoKnapping.LOGGER.info("Knapping verified via output slot: {} (total clicks: {}, wait ticks: {})",
-                        targetRecipe.id(), totalClicksThisSession, verifyTicks);
+                    TFCAutoKnapping.LOGGER.info("Knapping verified via output slot: {} (total clicks: {}, wait ms: {})",
+                        targetRecipe.id(), totalClicksThisSession, elapsedMs);
                     if (debugMode.get())
                     {
                         debugLog("=== KNAPPING COMPLETE (OUTPUT VERIFIED) ===");
                         debugLog("Recipe: %s", targetRecipe.id());
                         debugLog("Output item: %s", outputSlotItem.getHoverName().getString());
-                        debugLog("Verified after %d ticks, total clicks: %d", verifyTicks, totalClicksThisSession);
+                        debugLog("Verified after %d ms, total clicks: %d", elapsedMs, totalClicksThisSession);
                     }
                     RecipeSelector.autoKnappingActive = false;
                     RecipeSelector.selectedRecipeId = null;
                     RecipeSelector.selectionMode = true;
                     lastCellsToClickCount = 0;
                     verifyingOutput = false;
-                    verifyTicks = 0;
+                    verifyStartTime = 0;
                     totalClicksThisSession = 0;
                     failureCountThisSession = 0;
                     targetRecipeForDebug = null;
@@ -285,28 +285,28 @@ public class KnappingEvent
                     return;
                 }
 
-                if (verifyTicks >= VERIFY_TIMEOUT)
+                if (elapsedMs >= VERIFY_TIMEOUT_MS)
                 {
                     // 超时仍未出现产物 → 打制失败
-                    TFCAutoKnapping.LOGGER.warn("Output slot verification timeout for: {} (waited {} ticks)",
-                        targetRecipe.id(), verifyTicks);
+                    TFCAutoKnapping.LOGGER.warn("Output slot verification timeout for: {} (waited {} ms)",
+                        targetRecipe.id(), elapsedMs);
                     if (debugMode.get())
                     {
                         debugLog("=== OUTPUT VERIFICATION TIMEOUT ===");
                         debugLog("Recipe: %s", targetRecipe.id());
-                        debugLog("Waited %d ticks but output slot is empty", verifyTicks);
+                        debugLog("Waited %d ms but output slot is empty", elapsedMs);
                         debugLog("Current pattern:\n%s", KnappingUtil.patternToString(currentPattern));
                         debugLog("Recipe pattern:\n%s", KnappingUtil.patternToString(recipePattern));
                         writeFailureLog("OUTPUT_TIMEOUT", targetRecipe,
                             currentPattern, recipePattern, cellsToClick,
-                            "Output slot empty after " + verifyTicks + " ticks - server did not produce output");
+                            "Output slot empty after " + elapsedMs + " ms - server did not produce output");
                     }
                     RecipeSelector.autoKnappingActive = false;
                     RecipeSelector.selectedRecipeId = null;
                     RecipeSelector.selectionMode = true;
                     lastCellsToClickCount = 0;
                     verifyingOutput = false;
-                    verifyTicks = 0;
+                    verifyStartTime = 0;
                     totalClicksThisSession = 0;
                     failureCountThisSession = 0;
                     targetRecipeForDebug = null;
@@ -319,9 +319,9 @@ public class KnappingEvent
                 }
 
                 // 仍在等待服务器同步，不继续点击
-                if (debugMode.get() && verifyTicks % 5 == 0)
+                if (debugMode.get() && elapsedMs % 200 < 50)
                 {
-                    debugLog("Waiting for output sync... ticks=%d, recipe=%s", verifyTicks, targetRecipe.id());
+                    debugLog("Waiting for output sync... elapsed=%d ms, recipe=%s", elapsedMs, targetRecipe.id());
                 }
                 return;
             }
@@ -338,7 +338,7 @@ public class KnappingEvent
                     debugLog("Total clicks: %d", totalClicksThisSession);
                 }
                 verifyingOutput = true;
-                verifyTicks = 0;
+                verifyStartTime = System.currentTimeMillis();
                 lastCellsToClickCount = 0;
                 return;
             }
@@ -513,7 +513,7 @@ public class KnappingEvent
             lastCellsToClickCount = 0;
             debugCounter = 0;
             verifyingOutput = false;
-            verifyTicks = 0;
+            verifyStartTime = 0;
             totalClicksThisSession = 0;
             failureCountThisSession = 0;
             lastClickedCell = -1;
