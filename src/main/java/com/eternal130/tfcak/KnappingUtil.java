@@ -362,11 +362,36 @@ public class KnappingUtil
         return achievable;
     }
 
+    /**
+     * 获取配方图案在指定位置的有效值
+     *
+     * 关键修复 1：对于超出图案尺寸的位置，使用 defaultOn 值而非 get(i) 返回的 0，
+     * 因为 default_on=true 时这些位置应为 1（保留）。
+     *
+     * 关键修复 2：KnappingPattern 内部位集按 x + y * width（实际宽度）索引，
+     * 而非 x + y * MAX_WIDTH。当配方宽度不是 5 时（如铸锭模具宽4、铲子宽3），
+     * 直接传 index（= y * 5 + x）给 get(index) 会读取错误的位。
+     * 必须使用 get(x, y) 重载，它内部正确计算 x + y * width。
+     */
+    public static boolean getRecipeValueAt(KnappingPattern recipe, int index)
+    {
+        int x = index % KnappingPattern.MAX_WIDTH;
+        int y = index / KnappingPattern.MAX_WIDTH;
+        if (x < recipe.getWidth() && y < recipe.getHeight())
+        {
+            return recipe.get(x, y);
+        }
+        else
+        {
+            return recipe.defaultIsOn();
+        }
+    }
+
     public static boolean isAchievable(KnappingPattern recipe, KnappingPattern current)
     {
         for (int i = 0; i < TOTAL_CELLS; i++)
         {
-            if (recipe.get(i) && !current.get(i)) return false;
+            if (getRecipeValueAt(recipe, i) && !current.get(i)) return false;
         }
         return true;
     }
@@ -379,7 +404,7 @@ public class KnappingUtil
     {
         for (int i = 0; i < TOTAL_CELLS; i++)
         {
-            if (recipe.get(i) != current.get(i)) return false;
+            if (getRecipeValueAt(recipe, i) != current.get(i)) return false;
         }
         return true;
     }
@@ -391,7 +416,7 @@ public class KnappingUtil
         List<Integer> cells = new ArrayList<>();
         for (int i = 0; i < TOTAL_CELLS; i++)
         {
-            if (!recipe.get(i) && current.get(i)) cells.add(i);
+            if (!getRecipeValueAt(recipe, i) && current.get(i)) cells.add(i);
         }
         return cells;
     }
@@ -476,6 +501,26 @@ public class KnappingUtil
             for (int x = 0; x < KnappingPattern.MAX_WIDTH; x++)
             {
                 sb.append(pattern.get(x, y) ? "1" : "0");
+                if (x < KnappingPattern.MAX_WIDTH - 1) sb.append(" ");
+            }
+            if (y < KnappingPattern.MAX_HEIGHT - 1) sb.append("\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 配方图案转字符串（考虑 default_on）
+     * 对于超出图案尺寸的位置，显示 defaultOn 的值
+     */
+    public static String recipePatternToString(KnappingPattern recipe)
+    {
+        if (recipe == null) return "null";
+        StringBuilder sb = new StringBuilder();
+        for (int y = 0; y < KnappingPattern.MAX_HEIGHT; y++)
+        {
+            for (int x = 0; x < KnappingPattern.MAX_WIDTH; x++)
+            {
+                sb.append(getRecipeValueAt(recipe, x + y * KnappingPattern.MAX_WIDTH) ? "1" : "0");
                 if (x < KnappingPattern.MAX_WIDTH - 1) sb.append(" ");
             }
             if (y < KnappingPattern.MAX_HEIGHT - 1) sb.append("\n");

@@ -78,7 +78,7 @@ public class RecipeSelector
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < KnappingPattern.MAX_WIDTH * KnappingPattern.MAX_HEIGHT; i++)
             {
-                sb.append(pattern.get(i) ? '1' : '0');
+                sb.append(KnappingUtil.getRecipeValueAt(pattern, i) ? '1' : '0');
             }
             return sb.toString();
         }

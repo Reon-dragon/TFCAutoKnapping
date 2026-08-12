@@ -214,7 +214,7 @@ public class KnappingEvent
                     TFCAutoKnapping.timer, TFCAutoKnapping.isWaitingForServer,
                     TFCAutoKnapping.serverWaitTicks, cellsToClick.size(), totalClicksThisSession);
                 debugLog("Current pattern:\n%s", KnappingUtil.patternToString(currentPattern));
-                debugLog("Recipe pattern:\n%s", KnappingUtil.patternToString(recipePattern));
+                debugLog("Recipe pattern (with default_on):\n%s", KnappingUtil.recipePatternToString(recipePattern));
                 debugLog("Cells to click: %s", KnappingUtil.cellsToString(cellsToClick));
             }
 
@@ -296,7 +296,7 @@ public class KnappingEvent
                         debugLog("Recipe: %s", targetRecipe.id());
                         debugLog("Waited %d ms but output slot is empty", elapsedMs);
                         debugLog("Current pattern:\n%s", KnappingUtil.patternToString(currentPattern));
-                        debugLog("Recipe pattern:\n%s", KnappingUtil.patternToString(recipePattern));
+                        debugLog("Recipe pattern (with default_on):\n%s", KnappingUtil.recipePatternToString(recipePattern));
                         writeFailureLog("OUTPUT_TIMEOUT", targetRecipe,
                             currentPattern, recipePattern, cellsToClick,
                             "Output slot empty after " + elapsedMs + " ms - server did not produce output");
@@ -564,8 +564,8 @@ public class KnappingEvent
         }
         if (recipePattern != null)
         {
-            sb.append("Recipe Pattern (1=keep, 0=remove):\n");
-            sb.append(KnappingUtil.patternToString(recipePattern)).append("\n");
+            sb.append("Recipe Pattern (1=keep, 0=remove, with default_on):\n");
+            sb.append(KnappingUtil.recipePatternToString(recipePattern)).append("\n");
         }
         if (cellsToClick != null)
         {
