@@ -51,9 +51,9 @@ Config file path: `config/tfcak-client.toml`
 
 ## Technical Implementation
 
-- Recipe data is fetched via TFC's `RecipeManager.getAllRecipesFor()` and filtered by `KnappingType`, wrapped in `RecipeHolder<KnappingRecipe>`.
+- Recipe data is fetched via TFC's `RecipeManager.getAllRecipesFor()` and filtered by `KnappingType` and input material (`KnappingRecipe.matchesItem()`), wrapped in `RecipeHolder<KnappingRecipe>`.
 - Auto-knapping sends native TFC `ScreenButtonPacket` containing `buttonId = x + 5 * y` to the server via NeoForge's `PacketDistributor.sendToServer()`.
-- Rock variant deduplication is implemented by parsing rock suffixes (`_igneous_extrusive`, `_igneous_intrusive`, `_metamorphic`, `_sedimentary`) within recipe IDs.
+- Rock variant deduplication uses the 5x5 pattern as the key — recipes with identical patterns are automatically merged, supporting any mod-added rock types without hardcoded suffixes.
 - All event handlers are annotated with `Dist.CLIENT` to enforce client-side execution.
 - GUI position fields (`leftPos`/`topPos`) are obtained via a 5-layer progressive reflection strategy with failure caching.
 
@@ -119,9 +119,9 @@ TerraFirmaCraft 自动打制模组 — 一键自动完成 5x5 网格打制，无
 
 ## 技术实现
 
-- 配方数据通过 TFC 的 `RecipeManager.getAllRecipesFor()` 获取并按 `KnappingType` 过滤，使用 `RecipeHolder<KnappingRecipe>` 包装
+- 配方数据通过 TFC 的 `RecipeManager.getAllRecipesFor()` 获取，按 `KnappingType` 和输入材料（`KnappingRecipe.matchesItem()`）过滤，使用 `RecipeHolder<KnappingRecipe>` 包装
 - 自动打制通过 NeoForge 的 `PacketDistributor.sendToServer()` 发送 TFC 原生 `ScreenButtonPacket`（`buttonId = x + 5 * y`）到服务器
-- 岩石变体去重通过识别配方 ID 中的岩石类型后缀（`_igneous_extrusive`、`_igneous_intrusive`、`_metamorphic`、`_sedimentary`）实现
+- 岩石变体去重使用 5x5 图案作为键——相同图案的配方自动合并，无需硬编码后缀，完美支持模组添加的新岩石类型
 - 所有事件处理器标记为 `Dist.CLIENT`，纯客户端运行
 - GUI 位置字段（`leftPos`/`topPos`）通过 5 层渐进式反射策略获取，带失败缓存
 

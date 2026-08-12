@@ -8,6 +8,7 @@ import net.dries007.tfc.util.data.KnappingPattern;
 import net.dries007.tfc.util.data.KnappingType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.level.Level;
 import java.lang.reflect.Field;
@@ -312,18 +313,34 @@ public class KnappingUtil
      */
     public static List<RecipeHolder<KnappingRecipe>> findRecipes(Level level, KnappingType type)
     {
+        return findRecipes(level, type, ItemStack.EMPTY);
+    }
+
+    /**
+     * 查找当前打制类型的所有可用配方，并按输入材料过滤
+     * TFC 1.21: KnappingRecipe.matchesItem() 检查配方是否接受当前输入材料
+     * 这会自动过滤掉不匹配的岩石变体（如用普通石头时不会显示黑曜石配方）
+     */
+    public static List<RecipeHolder<KnappingRecipe>> findRecipes(Level level, KnappingType type, ItemStack inputStack)
+    {
         List<RecipeHolder<KnappingRecipe>> result = new ArrayList<>();
         if (level == null || type == null) return result;
 
         Collection<RecipeHolder<KnappingRecipe>> allRecipes = level.getRecipeManager()
             .getAllRecipesFor(TFCRecipeTypes.KNAPPING.get());
 
+        boolean hasInput = inputStack != null && !inputStack.isEmpty();
+
         for (RecipeHolder<KnappingRecipe> holder : allRecipes)
         {
             KnappingType recipeType = getRecipeType(holder.value());
             if (type.equals(recipeType))
             {
-                result.add(holder);
+                // 按输入材料过滤：只显示匹配当前材料的配方
+                if (!hasInput || holder.value().matchesItem(inputStack))
+                {
+                    result.add(holder);
+                }
             }
         }
         return result;

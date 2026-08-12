@@ -2,6 +2,7 @@ package com.eternal130.tfcak;
 
 import net.dries007.tfc.client.screen.KnappingScreen;
 import net.dries007.tfc.common.recipes.KnappingRecipe;
+import net.dries007.tfc.util.data.KnappingPattern;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
@@ -58,37 +59,36 @@ public class RecipeSelector
     private static final int COLOR_CLOSE_HOVER = 0xFFFF8888;
     private static final int COLOR_TEXT_DIM    = 0xFF94a3b8;
 
-    // ===== TFC 岩石类型后缀（去重用） =====
-    private static final String[] ROCK_TYPE_SUFFIXES = {
-        "_igneous_extrusive", "_igneous_intrusive",
-        "_metamorphic", "_sedimentary"
-    };
-
     // ===== 配方去重 =====
 
     /**
-     * 从 RecipeHolder 的 ID 提取基础工具名称（去除岩石类型后缀）
-     * TFC 1.21: ID 通过 holder.id() 获取
+     * 基于配方的 5x5 图案生成去重键
+     *
+     * 核心思路：相同工具类型的不同岩石变体拥有完全相同的打制图案，
+     * 因此用图案作为去重键可以自动合并所有岩石变体，
+     * 无需硬编码岩石类型后缀，完美支持模组添加的新岩石类型。
+     *
+     * 如果图案获取失败，回退到配方 ID 作为去重键。
      */
-    private static String extractBaseName(RecipeHolder<KnappingRecipe> holder)
+    private static String getDeduplicationKey(RecipeHolder<KnappingRecipe> holder)
     {
-        ResourceLocation id = holder.id();
-        String path = id.getPath();
-        String name = path.contains("/") ? path.substring(path.lastIndexOf("/") + 1) : path;
-
-        for (String suffix : ROCK_TYPE_SUFFIXES)
+        KnappingPattern pattern = KnappingUtil.getRecipePattern(holder.value());
+        if (pattern != null)
         {
-            if (name.endsWith(suffix))
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < KnappingPattern.MAX_WIDTH * KnappingPattern.MAX_HEIGHT; i++)
             {
-                return name.substring(0, name.length() - suffix.length());
+                sb.append(pattern.get(i) ? '1' : '0');
             }
+            return sb.toString();
         }
-        return name;
+        // 回退：使用配方 ID
+        return holder.id().toString();
     }
 
     /**
      * 加载配方列表并去重
-     * 同一基础工具名的多个岩石变体只保留第一个
+     * 相同图案的配方只保留第一个，自动合并所有岩石变体
      */
     public static void categorizeRecipes(List<RecipeHolder<KnappingRecipe>> recipes)
     {
@@ -103,10 +103,10 @@ public class RecipeSelector
         int removedCount = 0;
         for (RecipeHolder<KnappingRecipe> holder : recipes)
         {
-            String baseName = extractBaseName(holder);
-            if (!deduped.containsKey(baseName))
+            String deduplicationKey = getDeduplicationKey(holder);
+            if (!deduped.containsKey(deduplicationKey))
             {
-                deduped.put(baseName, holder);
+                deduped.put(deduplicationKey, holder);
             }
             else
             {

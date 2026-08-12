@@ -109,7 +109,9 @@ public class KnappingEvent
             boolean typeChanged = (cachedKnappingType != knappingType);
             if (cachedRecipes == null || typeChanged)
             {
-                cachedRecipes = KnappingUtil.findRecipes(level, knappingType);
+                // 按当前输入材料过滤配方（黑曜石配方不会在普通石头打制时出现）
+                net.minecraft.world.item.ItemStack inputStack = container.getOriginalStack();
+                cachedRecipes = KnappingUtil.findRecipes(level, knappingType, inputStack);
                 cachedKnappingType = knappingType;
                 TFCAutoKnapping.recipeCount = cachedRecipes.size();
                 RecipeSelector.categorizeRecipes(cachedRecipes);
