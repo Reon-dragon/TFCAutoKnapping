@@ -213,15 +213,78 @@ public class KnappingEvent
                 debugLog("Cells to click: %s", KnappingUtil.cellsToString(cellsToClick));
             }
 
-            if (cellsToClick.isEmpty()
-                || (lastCellsToClickCount > 0 && cellsToClick.size() > lastCellsToClickCount))
+            // 检查图案是否变差（待点击格子数增加 = 服务器移除了不该移除的格子）
+            if (lastCellsToClickCount > 0 && cellsToClick.size() > lastCellsToClickCount)
             {
-                TFCAutoKnapping.LOGGER.info("Knapping complete: {} (total clicks: {})",
+                TFCAutoKnapping.LOGGER.warn("Pattern degraded: cells increased from {} to {}, stopping: {}",
+                    lastCellsToClickCount, cellsToClick.size(), targetRecipe.id());
+                if (debugMode.get())
+                {
+                    debugLog("=== PATTERN DEGRADED (FALSE SUCCESS PREVENTED) ===");
+                    debugLog("Recipe: %s", targetRecipe.id());
+                    debugLog("lastCellsToClickCount=%d, current cellsToClick=%d", lastCellsToClickCount, cellsToClick.size());
+                    debugLog("Current pattern:\n%s", KnappingUtil.patternToString(currentPattern));
+                    debugLog("Recipe pattern:\n%s", KnappingUtil.patternToString(recipePattern));
+                    writeFailureLog("PATTERN_DEGRADED", targetRecipe,
+                        currentPattern, recipePattern, cellsToClick,
+                        "Cells to click increased from " + lastCellsToClickCount + " to " + cellsToClick.size() +
+                        " - pattern was ruined by unexpected cell removal");
+                }
+                RecipeSelector.autoKnappingActive = false;
+                RecipeSelector.selectedRecipeId = null;
+                RecipeSelector.selectionMode = true;
+                lastCellsToClickCount = 0;
+                totalClicksThisSession = 0;
+                failureCountThisSession = 0;
+                targetRecipeForDebug = null;
+                Player player = Minecraft.getInstance().player;
+                if (player != null)
+                {
+                    player.sendSystemMessage(Component.translatable("tfcak.recipe.failed"));
+                }
+                return;
+            }
+
+            // 检查打制是否完成（所有需要移除的格子都已移除）
+            if (cellsToClick.isEmpty())
+            {
+                // 最终验证：当前图案必须完全匹配配方图案
+                boolean patternVerified = KnappingUtil.patternMatches(recipePattern, currentPattern);
+                if (!patternVerified)
+                {
+                    TFCAutoKnapping.LOGGER.warn("Cells empty but pattern mismatch detected for: {}", targetRecipe.id());
+                    if (debugMode.get())
+                    {
+                        debugLog("=== PATTERN MISMATCH (FALSE SUCCESS PREVENTED) ===");
+                        debugLog("Recipe: %s", targetRecipe.id());
+                        debugLog("Current pattern:\n%s", KnappingUtil.patternToString(currentPattern));
+                        debugLog("Recipe pattern:\n%s", KnappingUtil.patternToString(recipePattern));
+                        writeFailureLog("PATTERN_MISMATCH", targetRecipe,
+                            currentPattern, recipePattern, cellsToClick,
+                            "cellsToClick is empty but current pattern does not match recipe pattern");
+                    }
+                    RecipeSelector.autoKnappingActive = false;
+                    RecipeSelector.selectedRecipeId = null;
+                    RecipeSelector.selectionMode = true;
+                    lastCellsToClickCount = 0;
+                    totalClicksThisSession = 0;
+                    failureCountThisSession = 0;
+                    targetRecipeForDebug = null;
+                    Player player = Minecraft.getInstance().player;
+                    if (player != null)
+                    {
+                        player.sendSystemMessage(Component.translatable("tfcak.recipe.failed"));
+                    }
+                    return;
+                }
+
+                TFCAutoKnapping.LOGGER.info("Knapping complete (verified): {} (total clicks: {})",
                     targetRecipe.id(), totalClicksThisSession);
                 if (debugMode.get())
                 {
-                    debugLog("=== KNAPPING COMPLETE ===");
+                    debugLog("=== KNAPPING COMPLETE (VERIFIED) ===");
                     debugLog("Recipe: %s", targetRecipe.id());
+                    debugLog("Pattern verified: current == recipe");
                     debugLog("Total clicks: %d, Failures: %d", totalClicksThisSession, failureCountThisSession);
                 }
                 RecipeSelector.autoKnappingActive = false;

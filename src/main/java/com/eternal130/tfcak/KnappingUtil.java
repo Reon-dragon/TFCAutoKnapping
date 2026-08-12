@@ -371,6 +371,19 @@ public class KnappingUtil
         return true;
     }
 
+    /**
+     * 验证当前图案是否完全匹配配方图案
+     * 用于在 cellsToClick.isEmpty() 时做最终确认，防止假成功
+     */
+    public static boolean patternMatches(KnappingPattern recipe, KnappingPattern current)
+    {
+        for (int i = 0; i < TOTAL_CELLS; i++)
+        {
+            if (recipe.get(i) != current.get(i)) return false;
+        }
+        return true;
+    }
+
     // ==================== 格子计算 ====================
 
     public static List<Integer> computeCellsToClick(KnappingPattern recipe, KnappingPattern current)
