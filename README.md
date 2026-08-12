@@ -1,8 +1,8 @@
 # TFCAutoKnapping
 
-## TerraFirmaCraft Auto Knapping Mod
+![TFCAutoKnapping](https://github.com/Reon-dragon/TFCAutoKnapping/releases/download/v1.2.0/tfcak_logo.jpg)
 
-Automatically complete 5x5 grid knapping without manual clicking.
+TerraFirmaCraft Auto Knapping Mod — Automatically complete 5x5 grid knapping without manual clicking.
 
 ## Features
 
@@ -16,21 +16,18 @@ Automatically complete 5x5 grid knapping without manual clicking.
 
 ## Requirements
 
-表格
-
 | Dependency | Version |
 | --- | --- |
-| Minecraft | 1.20.1 |
-| Forge | 47.x |
-| TerraFirmaCraft | 3.2+ (1.20.1) |
+| Minecraft | 1.21.1 |
+| NeoForge | 21.1.x |
+| TerraFirmaCraft | 4.2+ (1.21.1) |
 
 ## Installation
 
 1. Place `tfcak-*.jar` into your `.minecraft/mods/` folder
-2. Ensure TerraFirmaCraft is installed
+2. Ensure TerraFirmaCraft and NeoForge are installed
 3. Launch the game
 
-> 
 > This mod is client-side only. Only TFC needs to be installed on the server.
 
 ## Usage
@@ -45,8 +42,6 @@ Automatically complete 5x5 grid knapping without manual clicking.
 
 Config file path: `config/tfcak-client.toml`
 
-表格
-
 | Config Key | Default Value | Description |
 | --- | --- | --- |
 | `enableKnappingTip` | `true` | Enable highlight frame for the next knapping position |
@@ -56,15 +51,16 @@ Config file path: `config/tfcak-client.toml`
 
 ## Technical Implementation
 
-- Recipe data is fetched and filtered by `KnappingType` via TFC's `RecipeManager`.
-- Auto-knapping sends native TFC `ScreenButtonPacket` containing `buttonId = x + 5 * y` to the server.
-- Rock variant deduplication is implemented by parsing rock suffixes within recipe IDs.
+- Recipe data is fetched via TFC's `RecipeManager.getAllRecipesFor()` and filtered by `KnappingType`, wrapped in `RecipeHolder<KnappingRecipe>`.
+- Auto-knapping sends native TFC `ScreenButtonPacket` containing `buttonId = x + 5 * y` to the server via NeoForge's `PacketDistributor.sendToServer()`.
+- Rock variant deduplication is implemented by parsing rock suffixes (`_igneous_extrusive`, `_igneous_intrusive`, `_metamorphic`, `_sedimentary`) within recipe IDs.
 - All event handlers are annotated with `Dist.CLIENT` to enforce client-side execution.
+- GUI position fields (`leftPos`/`topPos`) are obtained via a 5-layer progressive reflection strategy with failure caching.
 
 ## Credits
 
-- [TerraFirmaCraft](https://link.wtturl.cn/?target=https%3A%2F%2Fgithub.com%2FTerraFirmaCraft%2FTerraFirmaCraft&scene=im&aid=582478&lang=zh) — Knapping system & recipe framework
-- [TFCAutoForging](https://link.wtturl.cn/?target=https%3A%2F%2Fgithub.com%2Femilyploszaj%2F&scene=im&aid=582478&lang=zh) — Architecture reference
+- [TerraFirmaCraft](https://github.com/TerraFirmaCraft/TerraFirmaCraft) — Knapping system & recipe framework
+- [TFCAutoForging](https://github.com/emilyploszaj/) — Architecture reference
 
 ## License
 
@@ -73,8 +69,6 @@ MIT License
 ---
 
 # TFCAutoKnapping
-
-![TFCAutoKnapping](https://github.com/Reon-dragon/TFCAutoKnapping/releases/download/v1.2.0/tfcak_logo.jpg)
 
 TerraFirmaCraft 自动打制模组 — 一键自动完成 5x5 网格打制，无需手动点击。
 
@@ -90,21 +84,18 @@ TerraFirmaCraft 自动打制模组 — 一键自动完成 5x5 网格打制，无
 
 ## 环境要求
 
-表格
-
 | 依赖 | 版本 |
 | --- | --- |
-| Minecraft | 1.20.1 |
-| Forge | 47.x |
-| TerraFirmaCraft | 3.2+ (1.20.1) |
+| Minecraft | 1.21.1 |
+| NeoForge | 21.1.x |
+| TerraFirmaCraft | 4.2+ (1.21.1) |
 
 ## 安装
 
 1. 将 `tfcak-*.jar` 放入 `.minecraft/mods/` 文件夹
-2. 确保已安装 TerraFirmaCraft
+2. 确保已安装 TerraFirmaCraft 和 NeoForge
 3. 启动游戏
 
-> 
 > 服务器端无需安装本模组，只需安装 TFC 即可。
 
 ## 使用方法
@@ -119,8 +110,6 @@ TerraFirmaCraft 自动打制模组 — 一键自动完成 5x5 网格打制，无
 
 配置文件位于 `config/tfcak-client.toml`：
 
-表格
-
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
 | `enableKnappingTip` | `true` | 打制时高亮下一个要点击的格子 |
@@ -130,15 +119,16 @@ TerraFirmaCraft 自动打制模组 — 一键自动完成 5x5 网格打制，无
 
 ## 技术实现
 
-- 配方数据通过 TFC 的 `RecipeManager` 按 `KnappingType` 过滤获取
-- 自动打制通过 TFC 的 `ScreenButtonPacket` 直接发送 `buttonId`（`x + 5 * y`）到服务器
-- 岩石变体去重通过识别配方 ID 中的岩石类型后缀实现
+- 配方数据通过 TFC 的 `RecipeManager.getAllRecipesFor()` 获取并按 `KnappingType` 过滤，使用 `RecipeHolder<KnappingRecipe>` 包装
+- 自动打制通过 NeoForge 的 `PacketDistributor.sendToServer()` 发送 TFC 原生 `ScreenButtonPacket`（`buttonId = x + 5 * y`）到服务器
+- 岩石变体去重通过识别配方 ID 中的岩石类型后缀（`_igneous_extrusive`、`_igneous_intrusive`、`_metamorphic`、`_sedimentary`）实现
 - 所有事件处理器标记为 `Dist.CLIENT`，纯客户端运行
+- GUI 位置字段（`leftPos`/`topPos`）通过 5 层渐进式反射策略获取，带失败缓存
 
 ## 致谢
 
-- [TerraFirmaCraft](https://link.wtturl.cn/?target=https%3A%2F%2Fgithub.com%2FTerraFirmaCraft%2FTerraFirmaCraft&scene=im&aid=582478&lang=zh) — 提供打制系统和配方管理
-- [TFCAutoForging](https://link.wtturl.cn/?target=https%3A%2F%2Fgithub.com%2Femilyploszaj%2F&scene=im&aid=582478&lang=zh) — 架构参考
+- [TerraFirmaCraft](https://github.com/TerraFirmaCraft/TerraFirmaCraft) — 提供打制系统和配方管理
+- [TFCAutoForging](https://github.com/emilyploszaj/) — 架构参考
 
 ## 许可证
 
