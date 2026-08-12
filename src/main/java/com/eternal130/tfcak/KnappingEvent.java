@@ -52,6 +52,11 @@ public class KnappingEvent
     private static String lastClickTime = null;
     private static RecipeHolder<KnappingRecipe> targetRecipeForDebug = null;
 
+    // 产物槽验证状态
+    private static boolean verifyingOutput = false;
+    private static int verifyTicks = 0;
+    private static final int VERIFY_TIMEOUT = 10; // 10 ticks = 500ms 等待服务器同步
+
     // ==================== 渲染事件 ====================
 
     @SubscribeEvent
@@ -220,20 +225,19 @@ public class KnappingEvent
                     lastCellsToClickCount, cellsToClick.size(), targetRecipe.id());
                 if (debugMode.get())
                 {
-                    debugLog("=== PATTERN DEGRADED (FALSE SUCCESS PREVENTED) ===");
+                    debugLog("=== PATTERN DEGRADED ===");
                     debugLog("Recipe: %s", targetRecipe.id());
                     debugLog("lastCellsToClickCount=%d, current cellsToClick=%d", lastCellsToClickCount, cellsToClick.size());
-                    debugLog("Current pattern:\n%s", KnappingUtil.patternToString(currentPattern));
-                    debugLog("Recipe pattern:\n%s", KnappingUtil.patternToString(recipePattern));
                     writeFailureLog("PATTERN_DEGRADED", targetRecipe,
                         currentPattern, recipePattern, cellsToClick,
-                        "Cells to click increased from " + lastCellsToClickCount + " to " + cellsToClick.size() +
-                        " - pattern was ruined by unexpected cell removal");
+                        "Cells to click increased from " + lastCellsToClickCount + " to " + cellsToClick.size());
                 }
                 RecipeSelector.autoKnappingActive = false;
                 RecipeSelector.selectedRecipeId = null;
                 RecipeSelector.selectionMode = true;
                 lastCellsToClickCount = 0;
+                verifyingOutput = false;
+                verifyTicks = 0;
                 totalClicksThisSession = 0;
                 failureCountThisSession = 0;
                 targetRecipeForDebug = null;
@@ -245,28 +249,64 @@ public class KnappingEvent
                 return;
             }
 
-            // 检查打制是否完成（所有需要移除的格子都已移除）
-            if (cellsToClick.isEmpty())
+            // 产物槽验证阶段：等待服务器同步后检查产物槽
+            if (verifyingOutput)
             {
-                // 最终验证：当前图案必须完全匹配配方图案
-                boolean patternVerified = KnappingUtil.patternMatches(recipePattern, currentPattern);
-                if (!patternVerified)
+                verifyTicks++;
+                ItemStack outputSlotItem = container.getSlot(0).getItem();
+
+                if (!outputSlotItem.isEmpty())
                 {
-                    TFCAutoKnapping.LOGGER.warn("Cells empty but pattern mismatch detected for: {}", targetRecipe.id());
+                    // 产物槽有物品 → 打制成功
+                    TFCAutoKnapping.LOGGER.info("Knapping verified via output slot: {} (total clicks: {}, wait ticks: {})",
+                        targetRecipe.id(), totalClicksThisSession, verifyTicks);
                     if (debugMode.get())
                     {
-                        debugLog("=== PATTERN MISMATCH (FALSE SUCCESS PREVENTED) ===");
+                        debugLog("=== KNAPPING COMPLETE (OUTPUT VERIFIED) ===");
                         debugLog("Recipe: %s", targetRecipe.id());
-                        debugLog("Current pattern:\n%s", KnappingUtil.patternToString(currentPattern));
-                        debugLog("Recipe pattern:\n%s", KnappingUtil.patternToString(recipePattern));
-                        writeFailureLog("PATTERN_MISMATCH", targetRecipe,
-                            currentPattern, recipePattern, cellsToClick,
-                            "cellsToClick is empty but current pattern does not match recipe pattern");
+                        debugLog("Output item: %s", outputSlotItem.getHoverName().getString());
+                        debugLog("Verified after %d ticks, total clicks: %d", verifyTicks, totalClicksThisSession);
                     }
                     RecipeSelector.autoKnappingActive = false;
                     RecipeSelector.selectedRecipeId = null;
                     RecipeSelector.selectionMode = true;
                     lastCellsToClickCount = 0;
+                    verifyingOutput = false;
+                    verifyTicks = 0;
+                    totalClicksThisSession = 0;
+                    failureCountThisSession = 0;
+                    targetRecipeForDebug = null;
+                    Player player = Minecraft.getInstance().player;
+                    if (player != null)
+                    {
+                        player.sendSystemMessage(Component.translatable(
+                            "tfcak.recipe.complete", outputSlotItem.getHoverName()));
+                    }
+                    return;
+                }
+
+                if (verifyTicks >= VERIFY_TIMEOUT)
+                {
+                    // 超时仍未出现产物 → 打制失败
+                    TFCAutoKnapping.LOGGER.warn("Output slot verification timeout for: {} (waited {} ticks)",
+                        targetRecipe.id(), verifyTicks);
+                    if (debugMode.get())
+                    {
+                        debugLog("=== OUTPUT VERIFICATION TIMEOUT ===");
+                        debugLog("Recipe: %s", targetRecipe.id());
+                        debugLog("Waited %d ticks but output slot is empty", verifyTicks);
+                        debugLog("Current pattern:\n%s", KnappingUtil.patternToString(currentPattern));
+                        debugLog("Recipe pattern:\n%s", KnappingUtil.patternToString(recipePattern));
+                        writeFailureLog("OUTPUT_TIMEOUT", targetRecipe,
+                            currentPattern, recipePattern, cellsToClick,
+                            "Output slot empty after " + verifyTicks + " ticks - server did not produce output");
+                    }
+                    RecipeSelector.autoKnappingActive = false;
+                    RecipeSelector.selectedRecipeId = null;
+                    RecipeSelector.selectionMode = true;
+                    lastCellsToClickCount = 0;
+                    verifyingOutput = false;
+                    verifyTicks = 0;
                     totalClicksThisSession = 0;
                     failureCountThisSession = 0;
                     targetRecipeForDebug = null;
@@ -278,29 +318,28 @@ public class KnappingEvent
                     return;
                 }
 
-                TFCAutoKnapping.LOGGER.info("Knapping complete (verified): {} (total clicks: {})",
-                    targetRecipe.id(), totalClicksThisSession);
+                // 仍在等待服务器同步，不继续点击
+                if (debugMode.get() && verifyTicks % 5 == 0)
+                {
+                    debugLog("Waiting for output sync... ticks=%d, recipe=%s", verifyTicks, targetRecipe.id());
+                }
+                return;
+            }
+
+            // 检查打制是否完成（所有需要移除的格子都已移除）
+            if (cellsToClick.isEmpty())
+            {
+                // 进入产物槽验证阶段，等待服务器同步
+                TFCAutoKnapping.LOGGER.info("All cells clicked, entering output verification: {}", targetRecipe.id());
                 if (debugMode.get())
                 {
-                    debugLog("=== KNAPPING COMPLETE (VERIFIED) ===");
+                    debugLog("=== CELLS EMPTY, ENTERING OUTPUT VERIFICATION ===");
                     debugLog("Recipe: %s", targetRecipe.id());
-                    debugLog("Pattern verified: current == recipe");
-                    debugLog("Total clicks: %d, Failures: %d", totalClicksThisSession, failureCountThisSession);
+                    debugLog("Total clicks: %d", totalClicksThisSession);
                 }
-                RecipeSelector.autoKnappingActive = false;
-                RecipeSelector.selectedRecipeId = null;
-                RecipeSelector.selectionMode = true;
+                verifyingOutput = true;
+                verifyTicks = 0;
                 lastCellsToClickCount = 0;
-                totalClicksThisSession = 0;
-                failureCountThisSession = 0;
-                targetRecipeForDebug = null;
-                Player player = Minecraft.getInstance().player;
-                if (player != null)
-                {
-                    ItemStack output = targetRecipe.value().getResultItem(level.registryAccess());
-                    player.sendSystemMessage(Component.translatable(
-                        "tfcak.recipe.complete", output.getHoverName()));
-                }
                 return;
             }
             lastCellsToClickCount = cellsToClick.size();
@@ -473,6 +512,8 @@ public class KnappingEvent
             panelInitialized = false;
             lastCellsToClickCount = 0;
             debugCounter = 0;
+            verifyingOutput = false;
+            verifyTicks = 0;
             totalClicksThisSession = 0;
             failureCountThisSession = 0;
             lastClickedCell = -1;
