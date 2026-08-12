@@ -1,25 +1,25 @@
 package com.eternal130.tfcak;
 
-import net.minecraftforge.common.ForgeConfigSpec;
+import net.neoforged.neoforge.common.ModConfigSpec;
 
 /**
- * 模组配置文件
+ * 模组配置文件 (NeoForge 1.21)
  *
  * 所有配置项均为客户端侧（CLIENT），通过编辑配置文件修改。
  * 自动打制由配方选择面板触发，无需按键开关。
  */
 public class ConfigFile
 {
-    public static final ForgeConfigSpec.BooleanValue enableKnappingTip;
-    public static final ForgeConfigSpec.IntValue autoKnappingCooldown;
-    public static final ForgeConfigSpec.ConfigValue<Integer> highlightColor;
-    public static final ForgeConfigSpec.BooleanValue debugMode;
+    public static final ModConfigSpec.BooleanValue enableKnappingTip;
+    public static final ModConfigSpec.IntValue autoKnappingCooldown;
+    public static final ModConfigSpec.ConfigValue<Integer> highlightColor;
+    public static final ModConfigSpec.BooleanValue debugMode;
 
-    public static ForgeConfigSpec CONFIG;
+    public static ModConfigSpec CONFIG;
 
     static
     {
-        ForgeConfigSpec.Builder BUILDER = new ForgeConfigSpec.Builder();
+        ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
         BUILDER.comment("TFCAutoKnapping General Settings").push("general");
 
         enableKnappingTip = BUILDER

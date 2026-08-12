@@ -8,29 +8,15 @@ import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.RecipeHolder;
+
 import java.util.*;
 
 /**
- * 配方可视化选择面板（不分类，纯网格布局，自动去重岩石变体）
+ * 配方可视化选择面板 (NeoForge 1.21)
  *
- * ┌────────────────────────────────────┐
- * │  选择配方 (点击图标开始打制)   [X]  │  标题栏
- * ├──────────────────────────────┬─────┤
- * │ Item Item Item Item Item Item │ ▓   │
- * │ Item Item Item Item Item Item │ ▓   │
- * │ Item Item Item Item Item Item │     │
- * │ Item Item Item Item Item Item │     │
- * │ Item Item Item Item Item Item │ ▓   │
- * │ Item Item Item Item Item Item │ ▓   │
- * └──────────────────────────────┴─────┘
- *          产物图标网格            滚动条
- *
- * 去重逻辑：
- * - TFC 的岩石打制配方按岩石类型分为 4 种变体：
- *   igneous_extrusive, igneous_intrusive, metamorphic, sedimentary
- * - 同一工具的不同岩石变体拥有相同的 5x5 打制图案
- * - 面板只显示每种工具的一个图标（通用模板）
- * - 实际打制时，TFC 服务器会根据输入材料自动匹配正确的配方
+ * 不分类，纯网格布局，自动去重岩石变体。
+ * TFC 1.21: 配方以 RecipeHolder<KnappingRecipe> 包装，ID 通过 holder.id() 获取。
  *
  * 交互方式：
  * - 点击配方图标：关闭面板，开始自动打制
@@ -40,22 +26,17 @@ import java.util.*;
 public class RecipeSelector
 {
     // ===== 状态 =====
-    /** 是否显示选择面板 */
     public static boolean selectionMode = false;
-    /** 是否正在自动打制 */
     public static boolean autoKnappingActive = false;
-    /** 选中的配方 ID */
     public static ResourceLocation selectedRecipeId = null;
 
-    /** 显示用配方列表（已去重） */
-    private static List<KnappingRecipe> displayRecipes = Collections.emptyList();
-    /** 配方滚动偏移量 */
+    private static List<RecipeHolder<KnappingRecipe>> displayRecipes = Collections.emptyList();
     private static int recipeScrollOffset = 0;
 
-    // ===== 布局常量（18px 网格系统） =====
+    // ===== 布局常量 =====
     private static final int ITEMS_PER_ROW = 6;
     private static final int ROWS_VISIBLE = 6;
-    private static final int ITEM_SIZE = 18;       // 16px 物品 + 2px 内边距
+    private static final int ITEM_SIZE = 18;
     private static final int PADDING = 6;
     private static final int TITLE_HEIGHT = 20;
     private static final int SCROLL_BAR_WIDTH = 8;
@@ -86,21 +67,15 @@ public class RecipeSelector
     // ===== 配方去重 =====
 
     /**
-     * 从配方 ID 提取基础工具名称（去除岩石类型后缀）
-     *
-     * 例如:
-     *   "tfc:rock_knapping/hoe_head_1_igneous_extrusive" → "hoe_head_1"
-     *   "tfc:rock_knapping/hammer_head_sedimentary"      → "hammer_head"
-     *   "tfc:clay_knapping/bowl"                          → "bowl"
-     *   "tfc:leather_knapping/helmet"                     → "helmet"
+     * 从 RecipeHolder 的 ID 提取基础工具名称（去除岩石类型后缀）
+     * TFC 1.21: ID 通过 holder.id() 获取
      */
-    private static String extractBaseName(KnappingRecipe recipe)
+    private static String extractBaseName(RecipeHolder<KnappingRecipe> holder)
     {
-        ResourceLocation id = recipe.getId();
+        ResourceLocation id = holder.id();
         String path = id.getPath();
         String name = path.contains("/") ? path.substring(path.lastIndexOf("/") + 1) : path;
 
-        // 去除岩石类型后缀
         for (String suffix : ROCK_TYPE_SUFFIXES)
         {
             if (name.endsWith(suffix))
@@ -115,7 +90,7 @@ public class RecipeSelector
      * 加载配方列表并去重
      * 同一基础工具名的多个岩石变体只保留第一个
      */
-    public static void categorizeRecipes(List<KnappingRecipe> recipes)
+    public static void categorizeRecipes(List<RecipeHolder<KnappingRecipe>> recipes)
     {
         if (recipes == null || recipes.isEmpty())
         {
@@ -124,15 +99,14 @@ public class RecipeSelector
             return;
         }
 
-        // 按基础名称去重，保留每种工具的第一个配方
-        Map<String, KnappingRecipe> deduped = new LinkedHashMap<>();
+        Map<String, RecipeHolder<KnappingRecipe>> deduped = new LinkedHashMap<>();
         int removedCount = 0;
-        for (KnappingRecipe recipe : recipes)
+        for (RecipeHolder<KnappingRecipe> holder : recipes)
         {
-            String baseName = extractBaseName(recipe);
+            String baseName = extractBaseName(holder);
             if (!deduped.containsKey(baseName))
             {
-                deduped.put(baseName, recipe);
+                deduped.put(baseName, holder);
             }
             else
             {
@@ -155,7 +129,7 @@ public class RecipeSelector
     private static int getPanelX(AbstractContainerScreen<?> screen)
     {
         int guiLeft = KnappingUtil.getGuiLeft(screen);
-        int guiWidth = 176;
+        int guiWidth = KnappingUtil.getImageWidthStatic(screen);
         int rightSpace = screen.width - (guiLeft + guiWidth) - 4;
         if (rightSpace >= PANEL_WIDTH)
         {
@@ -194,7 +168,7 @@ public class RecipeSelector
     // ===== 渲染 =====
 
     public static void render(GuiGraphics gg, KnappingScreen screen,
-                              List<KnappingRecipe> recipes,
+                              List<RecipeHolder<KnappingRecipe>> recipes,
                               double mouseX, double mouseY)
     {
         if (displayRecipes.isEmpty())
@@ -262,11 +236,11 @@ public class RecipeSelector
             int itemX = gridX + col * ITEM_SIZE;
             int itemY = gridY + row * ITEM_SIZE;
 
-            KnappingRecipe recipe = displayRecipes.get(i);
-            ItemStack output = recipe.getResultItem(registryAccess);
+            RecipeHolder<KnappingRecipe> holder = displayRecipes.get(i);
+            ItemStack output = holder.value().getResultItem(registryAccess);
 
             // 选中高亮
-            if (isSelected(recipe))
+            if (isSelected(holder))
             {
                 gg.fill(itemX - 1, itemY - 1, itemX + ITEM_SIZE, itemY + ITEM_SIZE, COLOR_SELECTED);
             }
@@ -285,8 +259,8 @@ public class RecipeSelector
         // 悬停 Tooltip
         if (hoverIndex >= 0 && hoverIndex < displayRecipes.size())
         {
-            KnappingRecipe hovered = displayRecipes.get(hoverIndex);
-            ItemStack output = hovered.getResultItem(registryAccess);
+            RecipeHolder<KnappingRecipe> hovered = displayRecipes.get(hoverIndex);
+            ItemStack output = hovered.value().getResultItem(registryAccess);
             if (!output.isEmpty())
             {
                 gg.renderTooltip(font, output, (int) mouseX, (int) mouseY);
@@ -313,21 +287,16 @@ public class RecipeSelector
 
     // ===== 点击处理 =====
 
-    /**
-     * 处理面板上的鼠标点击
-     *
-     * @return true 如果点击被面板消费（应取消事件）
-     */
     public static boolean handleClick(double mouseX, double mouseY,
                                        KnappingScreen screen,
-                                       List<KnappingRecipe> recipes)
+                                       List<RecipeHolder<KnappingRecipe>> recipes)
     {
         if (!selectionMode || displayRecipes.isEmpty()) return false;
 
         int panelX = getPanelX(screen);
         int panelY = getPanelY(screen);
 
-        // 点击面板外部 → 关闭面板，消费事件（防止误触网格）
+        // 点击面板外部 → 关闭面板
         if (!isPointIn(mouseX, mouseY, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT))
         {
             selectionMode = false;
@@ -343,29 +312,29 @@ public class RecipeSelector
             return true;
         }
 
-        // 产物图标网格 → 选择配方，开始打制
+        // 产物图标网格 → 选择配方
         int gridX = getGridX(panelX);
         int gridY = getGridY(panelY);
         int index = getRecipeIndexAt(mouseX, mouseY, gridX, gridY, displayRecipes);
         if (index >= 0 && index < displayRecipes.size())
         {
-            KnappingRecipe recipe = displayRecipes.get(index);
-            selectedRecipeId = recipe.getId();
+            RecipeHolder<KnappingRecipe> holder = displayRecipes.get(index);
+            selectedRecipeId = holder.id();
             selectionMode = false;
             autoKnappingActive = true;
 
             var player = Minecraft.getInstance().player;
             if (player != null && Minecraft.getInstance().level != null)
             {
-                ItemStack output = recipe.getResultItem(Minecraft.getInstance().level.registryAccess());
+                ItemStack output = holder.value().getResultItem(Minecraft.getInstance().level.registryAccess());
                 player.sendSystemMessage(Component.translatable(
                     "tfcak.recipe.selected", output.getHoverName()));
             }
-            TFCAutoKnapping.LOGGER.info("Recipe selected, starting auto-knapping: {}", recipe.getId());
+            TFCAutoKnapping.LOGGER.info("Recipe selected, starting auto-knapping: {}", holder.id());
             return true;
         }
 
-        return true; // 面板内空白处，消费事件
+        return true;
     }
 
     // ===== 滚动处理 =====
@@ -373,25 +342,20 @@ public class RecipeSelector
     public static boolean handleScroll(double mouseX, double mouseY,
                                         KnappingScreen screen,
                                         double direction,
-                                        List<KnappingRecipe> recipes)
+                                        List<RecipeHolder<KnappingRecipe>> recipes)
     {
         if (!selectionMode || displayRecipes.isEmpty()) return false;
 
         int panelX = getPanelX(screen);
         int panelY = getPanelY(screen);
 
-        // 面板内任意位置都可以滚动
         if (!isPointIn(mouseX, mouseY, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT))
         {
             return false;
         }
 
         int maxScroll = Math.max(0, getTotalRows(displayRecipes) - ROWS_VISIBLE);
-        // 滚动步进：每次滚动 2 行，使滚动效果更明显
         int scrollStep = 2;
-        // Minecraft 滚轮 delta： > 0 = 向上滚, < 0 = 向下滚
-        // 向上滚 → 偏移减少（看上方内容）
-        // 向下滚 → 偏移增加（看下方内容）
         if (direction < 0)
             recipeScrollOffset = Math.min(recipeScrollOffset + scrollStep, maxScroll);
         else
@@ -408,7 +372,7 @@ public class RecipeSelector
 
     private static int getRecipeIndexAt(double mouseX, double mouseY,
                                          int gridX, int gridY,
-                                         List<KnappingRecipe> recipes)
+                                         List<RecipeHolder<KnappingRecipe>> recipes)
     {
         int gridWidth = ITEMS_PER_ROW * ITEM_SIZE;
         int gridHeight = ROWS_VISIBLE * ITEM_SIZE;
@@ -420,37 +384,35 @@ public class RecipeSelector
         return (actualIndex >= 0 && actualIndex < recipes.size()) ? actualIndex : -1;
     }
 
-    private static int getTotalRows(List<KnappingRecipe> recipes)
+    private static int getTotalRows(List<RecipeHolder<KnappingRecipe>> recipes)
     {
         return (recipes.size() + ITEMS_PER_ROW - 1) / ITEMS_PER_ROW;
     }
 
-    private static boolean isSelected(KnappingRecipe recipe)
+    private static boolean isSelected(RecipeHolder<KnappingRecipe> holder)
     {
-        return selectedRecipeId != null && selectedRecipeId.equals(recipe.getId());
+        return selectedRecipeId != null && selectedRecipeId.equals(holder.id());
     }
 
     /**
      * 根据选中的 ID 从完整配方列表中查找配方
-     * 注意：这里搜索的是 KnappingEvent 传入的完整配方列表（包含所有岩石变体），
-     * 而非去重后的 displayRecipes。因为 selectedRecipeId 是去重列表中的某个变体 ID，
-     * 需要在完整列表中找到它来获取正确的打制图案。
+     * TFC 1.21: 返回 RecipeHolder<KnappingRecipe>
      */
-    public static KnappingRecipe getSelectedRecipe(List<KnappingRecipe> recipes)
+    public static RecipeHolder<KnappingRecipe> getSelectedRecipe(List<RecipeHolder<KnappingRecipe>> recipes)
     {
         if (selectedRecipeId == null || recipes.isEmpty()) return null;
-        for (KnappingRecipe recipe : recipes)
+        for (RecipeHolder<KnappingRecipe> holder : recipes)
         {
-            if (selectedRecipeId.equals(recipe.getId()))
+            if (selectedRecipeId.equals(holder.id()))
             {
-                return recipe;
+                return holder;
             }
         }
         return null;
     }
 
     /**
-     * 重置所有状态（界面关闭时调用）
+     * 重置所有状态
      */
     public static void reset()
     {

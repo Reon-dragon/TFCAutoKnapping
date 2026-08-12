@@ -1,26 +1,24 @@
 package com.eternal130.tfcak;
 
-import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.vertex.*;
 import net.dries007.tfc.client.screen.KnappingScreen;
 import net.dries007.tfc.common.container.KnappingContainer;
 import net.dries007.tfc.common.recipes.KnappingRecipe;
-import net.dries007.tfc.util.KnappingPattern;
-import net.dries007.tfc.util.KnappingType;
+import net.dries007.tfc.util.data.KnappingPattern;
+import net.dries007.tfc.util.data.KnappingType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.level.Level;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.ScreenEvent;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
 import net.minecraft.world.item.ItemStack;
-import net.minecraftforge.fml.loading.FMLPaths;
-import org.joml.Matrix4f;
+import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.level.Level;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.fml.loading.FMLPaths;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.client.event.ScreenEvent;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -31,45 +29,30 @@ import java.util.List;
 import static com.eternal130.tfcak.ConfigFile.*;
 
 /**
- * 打制事件处理器 — 模组核心逻辑
+ * 打制事件处理器 — 模组核心逻辑 (NeoForge 1.21)
  *
- * 事件清单：
- * 1. ScreenEvent.Render.Post           — 渲染：面板 + 高亮提示 + 自动点击
- * 2. TickEvent.ClientTickEvent         — 计时器递减 + 服务器等待超时
- * 3. ScreenEvent.MouseButtonPressed.Pre — 面板点击拦截（分类切换、配方选择、关闭）
- * 4. ScreenEvent.MouseScrolled         — 面板滚轮（分类列表 + 配方网格）
- * 5. ScreenEvent.Closing               — 状态重置
- *
- * 交互流程：
- *   打开界面 → 自动弹出配方选择面板 → 点击配方图标 → 开始自动打制 → 完成后重新弹出面板
+ * NeoForge 1.21 变更：
+ * - RecipeHolder<KnappingRecipe> 替代直接 KnappingRecipe 引用
+ * - ClientTickEvent.Pre 从 client.event 包引入
+ * - ScreenEvent.MouseScrolled.Pre 可取消，使用 getScrollDeltaY()
+ * - EventBusSubscriber 自动检测总线，无需 bus 参数
  */
-@Mod.EventBusSubscriber(modid = TFCAutoKnapping.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
+@EventBusSubscriber(modid = TFCAutoKnapping.MODID, value = Dist.CLIENT)
 public class KnappingEvent
 {
-    /** 缓存的配方列表（避免每帧查询） */
-    private static List<KnappingRecipe> cachedRecipes = null;
-    /** 缓存的打制类型（变化时重新查询） */
+    private static List<RecipeHolder<KnappingRecipe>> cachedRecipes = null;
     private static KnappingType cachedKnappingType = null;
-    /** 面板是否已初始化（每次打开界面时重置） */
     private static boolean panelInitialized = false;
-    /** 上次计算的需要点击格子数（用于检测打制完成） */
     private static int lastCellsToClickCount = 0;
-    /** 调试计数器（限制日志频率） */
     private static int debugCounter = 0;
 
-    // ===== 调试状态 =====
-    /** 本次自动打制的总点击次数 */
     private static int totalClicksThisSession = 0;
-    /** 本次自动打制的失败次数 */
     private static int failureCountThisSession = 0;
-    /** 上次点击的格子（用于调试日志） */
     private static int lastClickedCell = -1;
-    /** 上次点击时间戳（用于调试日志） */
     private static String lastClickTime = null;
-    /** 调试用：上一次的目标配方（用于超时时的日志记录） */
-    private static KnappingRecipe targetRecipeForDebug = null;
+    private static RecipeHolder<KnappingRecipe> targetRecipeForDebug = null;
 
-    // ==================== 渲染事件：核心入口 ====================
+    // ==================== 渲染事件 ====================
 
     @SubscribeEvent
     public static void onKnappingRender(ScreenEvent.Render.Post event)
@@ -79,8 +62,6 @@ public class KnappingEvent
             return;
         }
 
-        // 面板初始化后，若面板和自动打制都未激活，不做处理（手动模式）
-        // 面板未初始化时（首次打开），需要继续执行以自动弹出面板
         if (panelInitialized && !RecipeSelector.selectionMode && !RecipeSelector.autoKnappingActive)
         {
             return;
@@ -88,7 +69,6 @@ public class KnappingEvent
 
         try
         {
-            // 1. 获取容器和当前状态
             KnappingContainer container = screen.getMenu();
             KnappingPattern currentPattern = container.getPattern();
             KnappingType knappingType = container.getKnappingType();
@@ -99,7 +79,6 @@ public class KnappingEvent
                 return;
             }
 
-            // 2. 服务器响应检测（带超时）
             int currentData = KnappingUtil.getPatternData(currentPattern);
             if (TFCAutoKnapping.isWaitingForServer)
             {
@@ -127,7 +106,6 @@ public class KnappingEvent
                 }
             }
 
-            // 3. 查找可用配方（带缓存）
             boolean typeChanged = (cachedKnappingType != knappingType);
             if (cachedRecipes == null || typeChanged)
             {
@@ -135,7 +113,7 @@ public class KnappingEvent
                 cachedKnappingType = knappingType;
                 TFCAutoKnapping.recipeCount = cachedRecipes.size();
                 RecipeSelector.categorizeRecipes(cachedRecipes);
-                panelInitialized = false; // 新配方集，重置面板状态
+                panelInitialized = false;
                 TFCAutoKnapping.LOGGER.info("Loaded {} recipes for knapping type: {}",
                     cachedRecipes.size(), knappingType);
             }
@@ -149,7 +127,6 @@ public class KnappingEvent
                 return;
             }
 
-            // 4. 自动弹出配方选择面板（每次打开界面时）
             if (!panelInitialized)
             {
                 RecipeSelector.selectionMode = true;
@@ -157,7 +134,6 @@ public class KnappingEvent
                 panelInitialized = true;
             }
 
-            // 5. 面板开启时渲染面板，暂停自动打制
             if (RecipeSelector.selectionMode)
             {
                 RecipeSelector.render(
@@ -167,15 +143,13 @@ public class KnappingEvent
                 return;
             }
 
-            // 6. 自动打制逻辑
             if (!RecipeSelector.autoKnappingActive)
             {
                 return;
             }
 
-            // 7. 获取选中的目标配方
-            KnappingRecipe targetRecipe = RecipeSelector.getSelectedRecipe(cachedRecipes);
-            targetRecipeForDebug = targetRecipe; // 保存供超时日志使用
+            RecipeHolder<KnappingRecipe> targetRecipe = RecipeSelector.getSelectedRecipe(cachedRecipes);
+            targetRecipeForDebug = targetRecipe;
             if (targetRecipe == null)
             {
                 TFCAutoKnapping.LOGGER.warn("No recipe selected, stopping auto-knapping");
@@ -191,10 +165,10 @@ public class KnappingEvent
                 return;
             }
 
-            KnappingPattern recipePattern = KnappingUtil.getRecipePattern(targetRecipe);
+            KnappingPattern recipePattern = KnappingUtil.getRecipePattern(targetRecipe.value());
             if (recipePattern == null)
             {
-                TFCAutoKnapping.LOGGER.warn("Failed to get pattern for recipe: {}", targetRecipe.getId());
+                TFCAutoKnapping.LOGGER.warn("Failed to get pattern for recipe: {}", targetRecipe.id());
                 if (debugMode.get())
                 {
                     writeFailureLog("PATTERN_NULL", targetRecipe,
@@ -204,10 +178,9 @@ public class KnappingEvent
                 return;
             }
 
-            // 8. 检查配方是否仍可完成（防止手动误触破坏配方）
             if (!KnappingUtil.isAchievable(recipePattern, currentPattern))
             {
-                TFCAutoKnapping.LOGGER.info("Recipe no longer achievable, stopping: {}", targetRecipe.getId());
+                TFCAutoKnapping.LOGGER.info("Recipe no longer achievable, stopping: {}", targetRecipe.id());
                 if (debugMode.get())
                 {
                     writeFailureLog("RECIPE_NOT_ACHIEVABLE", targetRecipe,
@@ -226,10 +199,8 @@ public class KnappingEvent
                 return;
             }
 
-            // 9. 计算需要点击的格子
             List<Integer> cellsToClick = KnappingUtil.computeCellsToClick(recipePattern, currentPattern);
 
-            // 调试日志：每帧输出当前状态
             if (debugMode.get() && debugCounter++ % 20 == 0)
             {
                 debugLog("State: timer=%d, waiting=%b, waitTicks=%d, cellsRemaining=%d, totalClicks=%d",
@@ -240,23 +211,20 @@ public class KnappingEvent
                 debugLog("Cells to click: %s", KnappingUtil.cellsToString(cellsToClick));
             }
 
-            // 10. 检测打制完成
-            //    cellsToClick 为空 = 所有需要移除的格子都已点击
-            //    cellsToClick 数量增加 = 网格被重置（TFC 完成配方后自动重置）
             if (cellsToClick.isEmpty()
                 || (lastCellsToClickCount > 0 && cellsToClick.size() > lastCellsToClickCount))
             {
                 TFCAutoKnapping.LOGGER.info("Knapping complete: {} (total clicks: {})",
-                    targetRecipe.getId(), totalClicksThisSession);
+                    targetRecipe.id(), totalClicksThisSession);
                 if (debugMode.get())
                 {
                     debugLog("=== KNAPPING COMPLETE ===");
-                    debugLog("Recipe: %s", targetRecipe.getId());
+                    debugLog("Recipe: %s", targetRecipe.id());
                     debugLog("Total clicks: %d, Failures: %d", totalClicksThisSession, failureCountThisSession);
                 }
                 RecipeSelector.autoKnappingActive = false;
                 RecipeSelector.selectedRecipeId = null;
-                RecipeSelector.selectionMode = true; // 重新弹出面板
+                RecipeSelector.selectionMode = true;
                 lastCellsToClickCount = 0;
                 totalClicksThisSession = 0;
                 failureCountThisSession = 0;
@@ -264,7 +232,7 @@ public class KnappingEvent
                 Player player = Minecraft.getInstance().player;
                 if (player != null)
                 {
-                    ItemStack output = targetRecipe.getResultItem(level.registryAccess());
+                    ItemStack output = targetRecipe.value().getResultItem(level.registryAccess());
                     player.sendSystemMessage(Component.translatable(
                         "tfcak.recipe.complete", output.getHoverName()));
                 }
@@ -272,14 +240,11 @@ public class KnappingEvent
             }
             lastCellsToClickCount = cellsToClick.size();
 
-            // 11. 找到下一个需要点击的格子
             int nextCell = cellsToClick.get(0);
 
-            // 12. 计算按钮坐标（用于高亮渲染）
             int guiLeft = KnappingUtil.getGuiLeft(screen);
             int guiTop = KnappingUtil.getGuiTop(screen);
 
-            // 13. 渲染高亮提示
             if (enableKnappingTip.get())
             {
                 int cellX = nextCell % KnappingPattern.MAX_WIDTH;
@@ -289,26 +254,22 @@ public class KnappingEvent
                 drawHighlight(event.getGuiGraphics(), buttonX, buttonY);
             }
 
-            // 14. 自动点击 — 使用直接 API（绕过按钮系统）
             if (TFCAutoKnapping.timer == 0 && !TFCAutoKnapping.isWaitingForServer)
             {
                 int cellX = nextCell % KnappingPattern.MAX_WIDTH;
                 int cellY = nextCell / KnappingPattern.MAX_WIDTH;
                 TFCAutoKnapping.LOGGER.info("Auto-clicking cell {} ({},{}) via direct API, recipe={}, remaining={}",
-                    nextCell, cellX, cellY, targetRecipe.getId(), cellsToClick.size());
+                    nextCell, cellX, cellY, targetRecipe.id(), cellsToClick.size());
 
-                // 记录点击前的 pattern 数据（用于服务器响应检测）
                 TFCAutoKnapping.lastPatternData = currentData;
                 TFCAutoKnapping.isWaitingForServer = true;
                 TFCAutoKnapping.serverWaitTicks = 0;
                 TFCAutoKnapping.timer = autoKnappingCooldown.get();
 
-                // 调试记录
                 totalClicksThisSession++;
                 lastClickedCell = nextCell;
                 lastClickTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss.SSS"));
 
-                // 使用直接 API 发送打制点击（绕过按钮系统）
                 boolean success = KnappingUtil.clickCellDirect(container, nextCell);
                 if (!success)
                 {
@@ -325,7 +286,6 @@ public class KnappingEvent
                             currentPattern, recipePattern, cellsToClick,
                             "Both direct API and fallback failed for cell " + nextCell);
                     }
-                    // 重置等待状态，允许下一次尝试
                     TFCAutoKnapping.isWaitingForServer = false;
                     TFCAutoKnapping.timer = autoKnappingCooldown.get();
                 }
@@ -349,7 +309,7 @@ public class KnappingEvent
         }
     }
 
-    // ==================== 鼠标点击拦截（选择面板） ====================
+    // ==================== 鼠标点击拦截 ====================
 
     @SubscribeEvent
     public static void onMouseClick(ScreenEvent.MouseButtonPressed.Pre event)
@@ -371,7 +331,6 @@ public class KnappingEvent
                 return;
             }
 
-            // 左键点击
             if (event.getButton() == 0)
             {
                 boolean handled = RecipeSelector.handleClick(
@@ -389,10 +348,10 @@ public class KnappingEvent
         }
     }
 
-    // ==================== 滚轮事件（选择面板） ====================
+    // ==================== 滚轮事件 ====================
 
     @SubscribeEvent
-    public static void onMouseScroll(ScreenEvent.MouseScrolled event)
+    public static void onMouseScroll(ScreenEvent.MouseScrolled.Pre event)
     {
         if (!(event.getScreen() instanceof KnappingScreen screen))
         {
@@ -408,7 +367,7 @@ public class KnappingEvent
 
             boolean handled = RecipeSelector.handleScroll(
                 event.getMouseX(), event.getMouseY(), screen,
-                event.getScrollDelta(), cachedRecipes
+                event.getScrollDeltaY(), cachedRecipes
             );
             if (handled)
             {
@@ -424,7 +383,7 @@ public class KnappingEvent
     // ==================== 计时器事件 ====================
 
     @SubscribeEvent
-    public static void onTick(TickEvent.ClientTickEvent event)
+    public static void onTick(ClientTickEvent.Pre event)
     {
         if (TFCAutoKnapping.timer > 0)
         {
@@ -459,10 +418,6 @@ public class KnappingEvent
 
     // ==================== 调试日志工具 ====================
 
-    /**
-     * 调试日志输出（仅在 debugMode 开启时生效）
-     * 同时输出到 LOGGER 和 tfcak_debug.log 文件
-     */
     private static void debugLog(String format, Object... args)
     {
         String msg = String.format(format, args);
@@ -470,11 +425,7 @@ public class KnappingEvent
         writeDebugLogLine(msg);
     }
 
-    /**
-     * 写入失败日志（结构化报告）
-     * 当打制失败时自动调用，记录详细状态信息
-     */
-    private static void writeFailureLog(String failureType, KnappingRecipe recipe,
+    private static void writeFailureLog(String failureType, RecipeHolder<KnappingRecipe> recipe,
                                          KnappingPattern currentPattern,
                                          KnappingPattern recipePattern,
                                          List<Integer> cellsToClick,
@@ -489,7 +440,7 @@ public class KnappingEvent
         sb.append("========================================\n");
         sb.append("Timestamp: ").append(timestamp).append("\n");
         sb.append("Failure Type: ").append(failureType).append("\n");
-        sb.append("Recipe: ").append(recipe != null ? recipe.getId() : "null").append("\n");
+        sb.append("Recipe: ").append(recipe != null ? recipe.id() : "null").append("\n");
         sb.append("Error: ").append(errorMessage).append("\n");
         sb.append("Session Stats: clicks=").append(totalClicksThisSession)
           .append(", failures=").append(failureCountThisSession).append("\n");
@@ -520,7 +471,6 @@ public class KnappingEvent
         TFCAutoKnapping.LOGGER.warn("TFCAK Failure Report:\n{}", report);
         writeDebugLogLine(report);
 
-        // 同时向玩家发送聊天消息
         Player player = Minecraft.getInstance().player;
         if (player != null)
         {
@@ -529,9 +479,6 @@ public class KnappingEvent
         }
     }
 
-    /**
-     * 将一行文本追加到 tfcak_debug.log 文件
-     */
     private static void writeDebugLogLine(String text)
     {
         try
@@ -543,57 +490,26 @@ public class KnappingEvent
         }
         catch (Throwable e)
         {
-            // 静默失败，不影响游戏
+            // 静默失败
         }
     }
 
-    // ==================== 渲染工具 ====================
+    // ==================== 渲染工具（使用 GuiGraphics.fill 替代底层 BufferBuilder）====================
 
-    private static void drawHighlight(GuiGraphics guiGraphics, int x, int y)
+    private static void drawHighlight(GuiGraphics gg, int x, int y)
     {
         int color = highlightColor.get();
-        float alpha = ((color >> 24) & 0xFF) / 255.0f;
-        float red = ((color >> 16) & 0xFF) / 255.0f;
-        float green = ((color >> 8) & 0xFF) / 255.0f;
-        float blue = (color & 0xFF) / 255.0f;
-
-        PoseStack poseStack = guiGraphics.pose();
-        Matrix4f matrix = poseStack.last().pose();
-
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.setShader(GameRenderer::getPositionColorShader);
-        RenderSystem.setShaderColor(red, green, blue, alpha);
-
-        BufferBuilder buffer = Tesselator.getInstance().getBuilder();
-        buffer.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
-
         int thickness = 2;
         int size = 16;
 
+        // 用四条 fill 矩形绘制边框（兼容 1.21 渲染 API 变更）
         // 上边
-        buffer.vertex(matrix, x - 1, y - 1, 0).color(red, green, blue, alpha).endVertex();
-        buffer.vertex(matrix, x + size + 1, y - 1, 0).color(red, green, blue, alpha).endVertex();
-        buffer.vertex(matrix, x + size + 1, y - 1 + thickness, 0).color(red, green, blue, alpha).endVertex();
-        buffer.vertex(matrix, x - 1, y - 1 + thickness, 0).color(red, green, blue, alpha).endVertex();
+        gg.fill(x - 1, y - 1, x + size + 1, y - 1 + thickness, color);
         // 下边
-        buffer.vertex(matrix, x - 1, y + size + 1 - thickness, 0).color(red, green, blue, alpha).endVertex();
-        buffer.vertex(matrix, x + size + 1, y + size + 1 - thickness, 0).color(red, green, blue, alpha).endVertex();
-        buffer.vertex(matrix, x + size + 1, y + size + 1, 0).color(red, green, blue, alpha).endVertex();
-        buffer.vertex(matrix, x - 1, y + size + 1, 0).color(red, green, blue, alpha).endVertex();
+        gg.fill(x - 1, y + size + 1 - thickness, x + size + 1, y + size + 1, color);
         // 左边
-        buffer.vertex(matrix, x - 1, y - 1, 0).color(red, green, blue, alpha).endVertex();
-        buffer.vertex(matrix, x - 1 + thickness, y - 1, 0).color(red, green, blue, alpha).endVertex();
-        buffer.vertex(matrix, x - 1 + thickness, y + size + 1, 0).color(red, green, blue, alpha).endVertex();
-        buffer.vertex(matrix, x - 1, y + size + 1, 0).color(red, green, blue, alpha).endVertex();
+        gg.fill(x - 1, y - 1, x - 1 + thickness, y + size + 1, color);
         // 右边
-        buffer.vertex(matrix, x + size + 1 - thickness, y - 1, 0).color(red, green, blue, alpha).endVertex();
-        buffer.vertex(matrix, x + size + 1, y - 1, 0).color(red, green, blue, alpha).endVertex();
-        buffer.vertex(matrix, x + size + 1, y + size + 1, 0).color(red, green, blue, alpha).endVertex();
-        buffer.vertex(matrix, x + size + 1 - thickness, y + size + 1, 0).color(red, green, blue, alpha).endVertex();
-
-        BufferUploader.drawWithShader(buffer.end());
-        RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
-        RenderSystem.disableBlend();
+        gg.fill(x + size + 1 - thickness, y - 1, x + size + 1, y + size + 1, color);
     }
 }

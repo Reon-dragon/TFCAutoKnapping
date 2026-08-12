@@ -14,13 +14,13 @@ ${mod_description}
 
 Based on the TFCAutoForging architecture, this mod automates the
 TerraFirmaCraft knapping system by simulating mouse clicks on the
-5x5 grid to match recipe patterns.
+5x5 grid to match recipes.
 '''
 
 [[dependencies."${mod_id}"]]
-    modId="forge"
+    modId="neoforge"
     mandatory=true
-    versionRange="${forge_version_range}"
+    versionRange="${neoforge_version_range}"
     ordering="NONE"
     side="CLIENT"
 
