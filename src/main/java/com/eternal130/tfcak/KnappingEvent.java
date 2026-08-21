@@ -57,6 +57,39 @@ public class KnappingEvent
     private static long verifyStartTime = 0;
     private static final long VERIFY_TIMEOUT_MS = 1000; // 1000ms 等待服务器同步
 
+    // EMI 可选集成探测：EMI 存在时禁用自绘面板，由 EMI craft() 触发自动打制
+    static final boolean emiLoaded = classExists("dev.emi.emi.EmiPort");
+
+    private static boolean classExists(String className)
+    {
+        try
+        {
+            Class.forName(className);
+            return true;
+        }
+        catch (Throwable t)
+        {
+            return false;
+        }
+    }
+
+    /**
+     * 重置本次打制会话状态（完成/失败/放弃后统一调用）
+     * selectionMode 由 RecipeSelector.reset() 按 emiLoaded 决定：
+     * - 无 EMI：回到自绘选择面板（旧行为）
+     * - 有 EMI：不弹面板，由 EMI 侧栏继续驱动
+     */
+    private static void resetSession()
+    {
+        RecipeSelector.reset();
+        lastCellsToClickCount = 0;
+        verifyingOutput = false;
+        verifyStartTime = 0;
+        totalClicksThisSession = 0;
+        failureCountThisSession = 0;
+        targetRecipeForDebug = null;
+    }
+
     // ==================== 渲染事件 ====================
 
     @SubscribeEvent
@@ -136,7 +169,8 @@ public class KnappingEvent
 
             if (!panelInitialized)
             {
-                RecipeSelector.selectionMode = true;
+                // EMI 模式：不弹自绘面板（由 EMI 侧栏 + craft() 驱动）；无 EMI：保留旧面板行为
+                RecipeSelector.selectionMode = !emiLoaded;
                 RecipeSelector.autoKnappingActive = false;
                 panelInitialized = true;
             }
@@ -166,9 +200,7 @@ public class KnappingEvent
                         currentPattern, null, null,
                         "RecipeSelector.selectedRecipeId = " + RecipeSelector.selectedRecipeId);
                 }
-                RecipeSelector.autoKnappingActive = false;
-                RecipeSelector.selectionMode = true;
-                lastCellsToClickCount = 0;
+                resetSession();
                 return;
             }
 
@@ -194,10 +226,7 @@ public class KnappingEvent
                         currentPattern, recipePattern, null,
                         "Pattern was ruined - recipe requires cells that have already been clicked");
                 }
-                RecipeSelector.autoKnappingActive = false;
-                RecipeSelector.selectedRecipeId = null;
-                RecipeSelector.selectionMode = true;
-                lastCellsToClickCount = 0;
+                resetSession();
                 Player player = Minecraft.getInstance().player;
                 if (player != null)
                 {
@@ -232,15 +261,7 @@ public class KnappingEvent
                         currentPattern, recipePattern, cellsToClick,
                         "Cells to click increased from " + lastCellsToClickCount + " to " + cellsToClick.size());
                 }
-                RecipeSelector.autoKnappingActive = false;
-                RecipeSelector.selectedRecipeId = null;
-                RecipeSelector.selectionMode = true;
-                lastCellsToClickCount = 0;
-                verifyingOutput = false;
-                verifyStartTime = 0;
-                totalClicksThisSession = 0;
-                failureCountThisSession = 0;
-                targetRecipeForDebug = null;
+                resetSession();
                 Player player = Minecraft.getInstance().player;
                 if (player != null)
                 {
@@ -267,15 +288,7 @@ public class KnappingEvent
                         debugLog("Output item: %s", outputSlotItem.getHoverName().getString());
                         debugLog("Verified after %d ms, total clicks: %d", elapsedMs, totalClicksThisSession);
                     }
-                    RecipeSelector.autoKnappingActive = false;
-                    RecipeSelector.selectedRecipeId = null;
-                    RecipeSelector.selectionMode = true;
-                    lastCellsToClickCount = 0;
-                    verifyingOutput = false;
-                    verifyStartTime = 0;
-                    totalClicksThisSession = 0;
-                    failureCountThisSession = 0;
-                    targetRecipeForDebug = null;
+                    resetSession();
                     Player player = Minecraft.getInstance().player;
                     if (player != null)
                     {
@@ -301,15 +314,7 @@ public class KnappingEvent
                             currentPattern, recipePattern, cellsToClick,
                             "Output slot empty after " + elapsedMs + " ms - server did not produce output");
                     }
-                    RecipeSelector.autoKnappingActive = false;
-                    RecipeSelector.selectedRecipeId = null;
-                    RecipeSelector.selectionMode = true;
-                    lastCellsToClickCount = 0;
-                    verifyingOutput = false;
-                    verifyStartTime = 0;
-                    totalClicksThisSession = 0;
-                    failureCountThisSession = 0;
-                    targetRecipeForDebug = null;
+                    resetSession();
                     Player player = Minecraft.getInstance().player;
                     if (player != null)
                     {

@@ -6,7 +6,7 @@ version = mod_version
 group = mod_group_id
 
 base {
-    archivesName = mod_id
+    archivesName = 'tfcak-emi-plugin'
 }
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
@@ -45,6 +45,10 @@ neoForge {
 
 repositories {
     mavenCentral()
+    maven {
+        name = "Sleeping Town"
+        url = "https://repo.sleeping.town/"
+    }
     exclusiveContent {
         forRepository {
             maven {
@@ -61,6 +65,9 @@ repositories {
 dependencies {
     // TerraFirmaCraft — 编译时依赖，运行时由玩家安装
     implementation("curse.maven:terrafirmacraft-302973:${tfc_file_id}")
+
+    // EMI — 可选集成，仅编译期引用 API（运行时由玩家安装 EMI）
+    compileOnly("dev.emi:emi-neoforge:${emi_version}:api")
 }
 
 tasks.named('processResources', ProcessResources).configure {

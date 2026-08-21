@@ -416,7 +416,8 @@ public class RecipeSelector
      */
     public static void reset()
     {
-        selectionMode = false;
+        // 无 EMI 时回到自绘选择面板（旧行为）；EMI 模式下不弹面板，由 EMI 侧栏驱动
+        selectionMode = !KnappingEvent.emiLoaded;
         autoKnappingActive = false;
         selectedRecipeId = null;
         recipeScrollOffset = 0;
